@@ -20,26 +20,43 @@ function main() {
 	
 	const vertex_shader_source = `
 		attribute vec4 aVertexPosition;
+		attribute vec3 aVertexNormal;
 		attribute vec2 aTextureCoord;
-	
+
+		uniform mat4 uNormalMatrix;
 		uniform mat4 uModelViewMatrix;
 		uniform mat4 uProjectionMatrix;
-	
+
 		varying highp vec2 vTextureCoord;
-	
+		varying highp vec3 vLighting;
+
 		void main(void) {
 			gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
 			vTextureCoord = aTextureCoord;
+
+			// Apply lighting effect
+
+			highp vec3 ambientLight = vec3(0.3, 0.3, 0.3);
+			highp vec3 directionalLightColor = vec3(1, 1, 1);
+			highp vec3 directionalVector = normalize(vec3(0.85, 0.8, 0.75));
+
+			highp vec4 transformedNormal = uNormalMatrix * vec4(aVertexNormal, 1.0);
+
+			highp float directional = max(dot(transformedNormal.xyz, directionalVector), 0.0);
+			vLighting = ambientLight + (directionalLightColor * directional);
 		}
 	`;
 	
 	const fragment_shader_source = `
 		varying highp vec2 vTextureCoord;
-	
+		varying highp vec3 vLighting;
+
 		uniform sampler2D uSampler;
-	
+
 		void main(void) {
-			gl_FragColor = texture2D(uSampler, vTextureCoord);
+			highp vec4 texelColor = texture2D(uSampler, vTextureCoord);
+
+			gl_FragColor = vec4(texelColor.rgb * vLighting, texelColor.a);
 		}
 	`;
 
@@ -49,12 +66,14 @@ function main() {
 		program: shader_program,
 		attribute_locations: {
 			vertex_position: context.getAttribLocation(shader_program, "aVertexPosition"),
-			texture_coordinates: context.getAttribLocation(shader_program, "aTextureCoord")
+			texture_coordinates: context.getAttribLocation(shader_program, "aTextureCoord"),
+			vertex_normal: context.getAttribLocation(shader_program, "aVertexNormal"),
 		},
 		uniform_locations: {
 			projection_matrix: context.getUniformLocation(shader_program, "uProjectionMatrix"),
 			model_view_matrix: context.getUniformLocation(shader_program, "uModelViewMatrix"),
-			u_sampler: context.getUniformLocation(shader_program, "uSampler")
+			u_sampler: context.getUniformLocation(shader_program, "uSampler"),
+			normal_matrix: context.getUniformLocation(shader_program, "uNormalMatrix"),
 		}
 	};
 
@@ -212,10 +231,56 @@ function initialize_buffers(context) {
 
 	context.bufferData(context.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), context.STATIC_DRAW);
 
+	// Normal buffer
+
+	const normal_buffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer);
+  
+	const vertex_normals = [
+	  // Front
+	   0.0,  0.0,  1.0,
+	   0.0,  0.0,  1.0,
+	   0.0,  0.0,  1.0,
+	   0.0,  0.0,  1.0,
+  
+	  // Back
+	   0.0,  0.0, -1.0,
+	   0.0,  0.0, -1.0,
+	   0.0,  0.0, -1.0,
+	   0.0,  0.0, -1.0,
+  
+	  // Top
+	   0.0,  1.0,  0.0,
+	   0.0,  1.0,  0.0,
+	   0.0,  1.0,  0.0,
+	   0.0,  1.0,  0.0,
+  
+	  // Bottom
+	   0.0, -1.0,  0.0,
+	   0.0, -1.0,  0.0,
+	   0.0, -1.0,  0.0,
+	   0.0, -1.0,  0.0,
+  
+	  // Right
+	   1.0,  0.0,  0.0,
+	   1.0,  0.0,  0.0,
+	   1.0,  0.0,  0.0,
+	   1.0,  0.0,  0.0,
+  
+	  // Left
+	  -1.0,  0.0,  0.0,
+	  -1.0,  0.0,  0.0,
+	  -1.0,  0.0,  0.0,
+	  -1.0,  0.0,  0.0
+	];
+  
+	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertex_normals), gl.STATIC_DRAW);
+
 	return {
 		position: position_buffer,
 		texture_coordinates: texture_coordinate_buffer,
-		indices: index_buffer
+		indices: index_buffer,
+		normal: normal_buffer
 	};
 }
 
@@ -243,6 +308,12 @@ function draw_scene(context, program_info, buffers, texture, delta_time) {
 	glMatrix.mat4.translate(model_view_matrix, model_view_matrix, [ -0.0, 0.0, -6.0 ]);
 	glMatrix.mat4.rotate(model_view_matrix, model_view_matrix, cube_rotation, [ 0, 0, 1 ]); // fourth argument is axis to rotate around
 	glMatrix.mat4.rotate(model_view_matrix, model_view_matrix, cube_rotation * .7, [0, 1, 0]);
+
+	const normal_matrix = glMatrix.mat4.create();
+	glMatrix.mat4.invert(normal_matrix, model_view_matrix);
+	glMatrix.mat4.transpose(normal_matrix, normal_matrix);
+
+	context.uniformMatrix4fv(program_info.uniform_locations.normal_matrix, false, normal_matrix);
 
 	{
 		const component_count = 3;
@@ -273,6 +344,17 @@ function draw_scene(context, program_info, buffers, texture, delta_time) {
 		context.bindBuffer(context.ARRAY_BUFFER, buffers.texture_coordinates);
 		context.vertexAttribPointer(program_info.attribute_locations.texture_coordinates, component_count, type, normalize, stride, offset);
 		context.enableVertexAttribArray(program_info.attribute_locations.texture_coordinates);
+	}
+
+	{
+		const component_count = 3;
+		const type = context.FLOAT;
+		const normalize = false;
+		const stride = 0;
+		const offset = 0;
+		gl.bindBuffer(gl.ARRAY_BUFFER, buffers.normal);
+		gl.vertexAttribPointer(program_info.attribute_locations.vertex_normal, component_count, type, normalize, stride, offset);
+		gl.enableVertexAttribArray(program_info.attribute_locations.vertex_normal);
 	}
 
 	context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, buffers.indices);
