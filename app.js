@@ -1,4 +1,5 @@
 let cube_rotation = 0.0;
+let fps = 0;
 main();
 
 function main() {
@@ -12,6 +13,13 @@ function main() {
 	canvas.height = page_height;
 	document.getElementById("canvas-wrapper").appendChild(canvas);
 	const context = canvas.getContext("webgl");
+
+	const two_d_canvas = document.createElement("canvas");
+	two_d_canvas.width = page_width;
+	two_d_canvas.height = page_height;
+	two_d_canvas.id = "text-canvas";
+	document.getElementById("canvas-wrapper").appendChild(two_d_canvas);
+	const two_d_context = two_d_canvas.getContext("2d");
 	
 	if (!context) {
 		console.error("Couldn't get the WebGL canvas. Try using Firefox or Chrome.");
@@ -84,16 +92,16 @@ function main() {
 
 	function render(now) {
 		now /= 1000;
-	
+
 		delta_time = now - previous_now;
+		fps = Math.round(1000 / (delta_time * 1000));
 		previous_now = now;
-	
-		draw_scene(context, program_info, buffers, texture, delta_time);
+		draw_scene(context, two_d_context, program_info, buffers, texture, delta_time);
 	
 		requestAnimationFrame(render);
 	}
 	
-	requestAnimationFrame(render);
+	render(0);
 }
 
 function load_shader(context, type, source) {
@@ -283,10 +291,21 @@ function initialize_buffers(context) {
 	};
 }
 
-function draw_scene(context, program_info, buffers, texture, delta_time) {
+function draw_scene(context, two_d_context, program_info, buffers, texture, delta_time) {
 	if (!context || !program_info) {
 		console.error(`Oh no! There was a fatal error initializing the canvas.`);
 	}
+
+	// Put the current FPS counter on scree
+
+	two_d_context.fillStyle = "rgba(0, 0, 0, 0)";
+	two_d_context.fillRect(0, 0, two_d_context.canvas.clientWidth, two_d_context.canvas.clientHeight);
+	two_d_context.stroke();
+	two_d_context.clearRect(0, 0, two_d_context.canvas.clientWidth, two_d_context.canvas.clientHeight);
+	two_d_context.fillStyle = "#FFFF00";
+	two_d_context.font = "36px Roboto";
+	two_d_context.fillText(fps, 10, 50);
+	two_d_context.stroke();
 	
 	context.clearColor(0.0, 0.0, 0.0, 1.0);
 	context.clearDepth(1.0);
