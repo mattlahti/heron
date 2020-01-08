@@ -1,0 +1,7 @@
+The vertex shader is run for each vertex in the shape.
+It transforms the input vertex from its original coordinate system into the "clipspace" coordinate system used by WebGL.
+
+After the vertex shader is done processing, then the fragment shader is run.
+The fragment shader is called once for every pixel on each shape to be drawn.
+Basically, the fragment shader determines the color of the pixel by figuring out which texel (pixel from the shape's texture)
+to apply, getting its color, and then applying the lighting.
