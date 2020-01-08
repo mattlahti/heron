@@ -114,7 +114,6 @@ function load_shader(context, type, source) {
 function initialize_shaders(context, vertex_shader_source, fragment_shader_source) {
 	const vertex_shader = load_shader(context, context.VERTEX_SHADER, vertex_shader_source);
 	const fragment_shader = load_shader(context, context.FRAGMENT_SHADER, fragment_shader_source);
-	console.log(vertex_shader);
 
 	const shader_program = context.createProgram();
 	context.attachShader(shader_program, vertex_shader);
@@ -233,8 +232,8 @@ function initialize_buffers(context) {
 
 	// Normal buffer
 
-	const normal_buffer = gl.createBuffer();
-	gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer);
+	const normal_buffer = context.createBuffer();
+	context.bindBuffer(context.ARRAY_BUFFER, normal_buffer);
   
 	const vertex_normals = [
 	  // Front
@@ -274,7 +273,7 @@ function initialize_buffers(context) {
 	  -1.0,  0.0,  0.0
 	];
   
-	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertex_normals), gl.STATIC_DRAW);
+	context.bufferData(context.ARRAY_BUFFER, new Float32Array(vertex_normals), context.STATIC_DRAW);
 
 	return {
 		position: position_buffer,
@@ -352,9 +351,9 @@ function draw_scene(context, program_info, buffers, texture, delta_time) {
 		const normalize = false;
 		const stride = 0;
 		const offset = 0;
-		gl.bindBuffer(gl.ARRAY_BUFFER, buffers.normal);
-		gl.vertexAttribPointer(program_info.attribute_locations.vertex_normal, component_count, type, normalize, stride, offset);
-		gl.enableVertexAttribArray(program_info.attribute_locations.vertex_normal);
+		context.bindBuffer(context.ARRAY_BUFFER, buffers.normal);
+		context.vertexAttribPointer(program_info.attribute_locations.vertex_normal, component_count, type, normalize, stride, offset);
+		context.enableVertexAttribArray(program_info.attribute_locations.vertex_normal);
 	}
 
 	context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, buffers.indices);
