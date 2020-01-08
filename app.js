@@ -59,7 +59,7 @@ function main() {
 	};
 
 	const buffers = initialize_buffers(context);
-	const texture = loadTexture(context, "cubetexture2.png");
+	const texture = load_texture(context, "cubetexture.png");
 
 	let previous_now = 0;
 
@@ -314,7 +314,7 @@ function draw_scene(context, program_info, buffers, texture, delta_time) {
 	cube_rotation += delta_time;
 }
 
-function loadTexture(context, url) {
+function load_texture(context, url) {
 	const texture = context.createTexture();
 	context.bindTexture(context.TEXTURE_2D, texture);
   
