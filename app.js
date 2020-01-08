@@ -59,7 +59,7 @@ function main() {
 	};
 
 	const buffers = initialize_buffers(context);
-	const texture = loadTexture(context, "cubetexture.png");
+	const texture = loadTexture(context, "cubetexture2.png");
 
 	let previous_now = 0;
 
