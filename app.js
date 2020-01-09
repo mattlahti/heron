@@ -1,16 +1,94 @@
 let cube_rotation = 0.0;
 let fps = 0;
+let page_width = 0;
+let page_height = 0;
+
+let is_dragging = false;
+let x_rotation = 0;
+let y_rotation = 0;
+let z_rotation = 0;
+let camera_position = {
+	x: 0,
+	y: 0,
+	z: -6
+}
+
+let starting_mouse_pos = {};
+let keys_being_held = [];
+let keys_held = {};
+
 main();
+
+function get_mouse_position(event) {
+	return {
+		x: event.clientX /*- canvas.element.offsetLeft*/,
+		y: event.clientY /*- canvas.element.offsetTop*/
+	};
+}
+
+
+window.onkeyup = e => {
+	delete keys_held[e.key];
+	console.log(keys_being_held);
+}
+
+window.onkeydown = e => {
+	if (!keys_held[e.key]) {
+		keys_held[e.key] = e.key;
+	}
+}
+
+window.onmousedown = e => {
+	is_dragging = true;
+	starting_mouse_pos = get_mouse_position(e);
+}
+
+window.onmousemove = e => {
+	if (is_dragging) {
+		let current_mouse_pos = get_mouse_position(e);
+		// let x_delta = (starting_mouse_pos.x - current_mouse_pos.x) / rotation_dampening_scalar;
+
+		console.log(`current_mouse_pos.x: ${current_mouse_pos.x}\nstarting_mouse_pos.x: ${starting_mouse_pos.x}`);
+
+		if (current_mouse_pos.x > starting_mouse_pos.x) {
+			x_rotation += 0.5;
+		}
+		else {
+			x_rotation -= 0.5;
+		}
+
+		if (current_mouse_pos.y > starting_mouse_pos.y) {
+			y_rotation += 0.5;			
+		}
+		else {
+			y_rotation -= 0.5;
+		}
+	}
+}
+
+window.onmouseup = () => {
+	is_dragging = false;
+}
+
+window.onresize = e => {
+	page_width = Math.max(document.documentElement["clientWidth"], document.body["scrollWidth"], document.documentElement["scrollWidth"], document.body["offsetWidth"], document.documentElement["offsetWidth"]);
+	page_height = Math.max(document.documentElement["clientHeight"], document.body["scrollHeight"], document.documentElement["scrollHeight"], document.body["offsetHeight"], document.documentElement["offsetHeight"]);
+	document.getElementById("gl-canvas").width = page_width;
+	document.getElementById("text-canvas").width = page_width;
+	document.getElementById("gl-canvas").height = page_height;
+	document.getElementById("text-canvas").height = page_height;
+}
 
 function main() {
 	let delta_time = 0;
 	
-	let page_width = Math.max(document.documentElement["clientWidth"], document.body["scrollWidth"], document.documentElement["scrollWidth"], document.body["offsetWidth"], document.documentElement["offsetWidth"]);
-	let page_height = Math.max(document.documentElement["clientHeight"], document.body["scrollHeight"], document.documentElement["scrollHeight"], document.body["offsetHeight"], document.documentElement["offsetHeight"]);
+	page_width = Math.max(document.documentElement["clientWidth"], document.body["scrollWidth"], document.documentElement["scrollWidth"], document.body["offsetWidth"], document.documentElement["offsetWidth"]);
+	page_height = Math.max(document.documentElement["clientHeight"], document.body["scrollHeight"], document.documentElement["scrollHeight"], document.body["offsetHeight"], document.documentElement["offsetHeight"]);
 	
 	let canvas = document.createElement("canvas");
 	canvas.width = page_width;
 	canvas.height = page_height;
+	canvas.id = "gl-canvas";
 	document.getElementById("canvas-wrapper").appendChild(canvas);
 	const context = canvas.getContext("webgl");
 
@@ -296,8 +374,6 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 		console.error(`Oh no! There was a fatal error initializing the canvas.`);
 	}
 
-	// Put the current FPS counter on scree
-
 	two_d_context.fillStyle = "rgba(0, 0, 0, 0)";
 	two_d_context.fillRect(0, 0, two_d_context.canvas.clientWidth, two_d_context.canvas.clientHeight);
 	two_d_context.stroke();
@@ -313,19 +389,58 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 	context.depthFunc(context.LEQUAL);
 	
 	context.clear(context.COLOR_BUFFER_BIT | context.DEPTH_BUFFER_BIT);
+
+
+	// Perform movement calculations
+
+	let move_speed = 0.25;
+	let keys_being_held_array = Object.values(keys_held);
 	
-	const field_of_view = degrees_to_radians(45);
+	for (let i = 0; i < keys_being_held_array.length; i++) {
+		switch (keys_being_held_array[i]) {
+			case 'w': {
+				camera_position.z += move_speed;
+				break;
+			}
+			case 'a': {
+				camera_position.x += move_speed;
+				break;
+			}
+			case 's': {
+				camera_position.z -= move_speed;
+				break;
+			}
+			case 'd': {
+				camera_position.x -= move_speed;
+				break;
+			}
+			case 'e': {
+				camera_position.y += move_speed;
+				break;
+			}
+			case 'q': {
+				camera_position.y -= move_speed;
+				break;
+			}
+		}
+	}
+	
+	const field_of_view = degrees_to_radians(92);
 	const aspect = context.canvas.clientWidth / context.canvas.clientHeight;
 	const z_near = 0.1;
 	const z_far = 100.0;
 	
 	const projection_matrix = glMatrix.mat4.create();
 	glMatrix.mat4.perspective(projection_matrix, field_of_view, aspect, z_near, z_far);
-	
+	glMatrix.mat4.rotateX(projection_matrix, projection_matrix, degrees_to_radians(x_rotation));
+	glMatrix.mat4.rotateY(projection_matrix, projection_matrix, degrees_to_radians(y_rotation));
+
 	const model_view_matrix = glMatrix.mat4.create();
-	glMatrix.mat4.translate(model_view_matrix, model_view_matrix, [ -0.0, 0.0, -6.0 ]);
-	glMatrix.mat4.rotate(model_view_matrix, model_view_matrix, cube_rotation, [ 0, 0, 1 ]); // fourth argument is axis to rotate around
-	glMatrix.mat4.rotate(model_view_matrix, model_view_matrix, cube_rotation * .7, [0, 1, 0]);
+	glMatrix.mat4.translate(model_view_matrix, model_view_matrix, [ camera_position.x, camera_position.y, camera_position.z ]);
+	// glMatrix.mat4.translate(model_view_matrix, model_view_matrix, [ -0.0, 0.0, -4.0 ]);
+	// glMatrix.mat4.rotateX(model_view_matrix, model_view_matrix, degrees_to_radians(x_rotation));
+	// glMatrix.mat4.rotateY(model_view_matrix, model_view_matrix, degrees_to_radians(y_rotation));
+	// glMatrix.mat4.rotateZ(model_view_matrix, model_view_matrix, degrees_to_radians(z_rotation));
 
 	const normal_matrix = glMatrix.mat4.create();
 	glMatrix.mat4.invert(normal_matrix, model_view_matrix);
@@ -405,13 +520,10 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 		const offset = 0;
 		context.drawElements(context.TRIANGLES, vertex_count, type, offset);
 	}
-	// {
-	// 	const offset = 0;
-	// 	const vertex_count = 4;
-	// 	context.drawArrays(context.TRIANGLE_STRIP, offset, vertex_count);
-	// }
 
-	cube_rotation += delta_time;
+	let rotation_scalar = 1;
+
+	cube_rotation += delta_time * rotation_scalar;
 }
 
 function load_texture(context, url) {
@@ -426,7 +538,7 @@ function load_texture(context, url) {
 	const border = 0;
 	const srcFormat = context.RGBA;
 	const srcType = context.UNSIGNED_BYTE;
-	const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
+	const pixel = new Uint8Array([221, 72, 0, 255]);  // opaque blue
 	context.texImage2D(context.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
   
 	const image = new Image();
