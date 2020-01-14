@@ -14,6 +14,7 @@ let camera_position = {
 }
 
 let starting_mouse_pos = {};
+let last_mouse_pos = {};
 let keys_being_held = [];
 let keys_held = {};
 
@@ -29,7 +30,6 @@ function get_mouse_position(event) {
 
 window.onkeyup = e => {
 	delete keys_held[e.key];
-	console.log(keys_being_held);
 }
 
 window.onkeydown = e => {
@@ -41,28 +41,18 @@ window.onkeydown = e => {
 window.onmousedown = e => {
 	is_dragging = true;
 	starting_mouse_pos = get_mouse_position(e);
+	last_mouse_pos = starting_mouse_pos;
 }
 
 window.onmousemove = e => {
 	if (is_dragging) {
 		let current_mouse_pos = get_mouse_position(e);
-		// let x_delta = (starting_mouse_pos.x - current_mouse_pos.x) / rotation_dampening_scalar;
 
-		console.log(`current_mouse_pos.x: ${current_mouse_pos.x}\nstarting_mouse_pos.x: ${starting_mouse_pos.x}`);
+		//@note(Matt): While this may look wrong, the coordinate plane is actually flipped (x = up/down, y = left/right)
+		x_rotation += -(last_mouse_pos.y - current_mouse_pos.y);
+		y_rotation += -(last_mouse_pos.x - current_mouse_pos.x);
 
-		if (current_mouse_pos.x > starting_mouse_pos.x) {
-			x_rotation += 0.5;
-		}
-		else {
-			x_rotation -= 0.5;
-		}
-
-		if (current_mouse_pos.y > starting_mouse_pos.y) {
-			y_rotation += 0.5;			
-		}
-		else {
-			y_rotation -= 0.5;
-		}
+		last_mouse_pos = current_mouse_pos;
 	}
 }
 
@@ -258,7 +248,46 @@ function initialize_buffers(context) {
 		-1.0,  1.0, -1.0,
 	  ];
 
+	  const positions_two = [
+		// Front face
+		-3.0, -3.0,  3.0,
+		 3.0, -3.0,  3.0,
+		 3.0,  3.0,  3.0,
+		-3.0,  3.0,  3.0,
+		
+		// Back face
+		-3.0, -3.0, -3.0,
+		-3.0,  3.0, -3.0,
+		 3.0,  3.0, -3.0,
+		 3.0, -3.0, -3.0,
+		
+		// Top face
+		-3.0,  3.0, -3.0,
+		-3.0,  3.0,  3.0,
+		 3.0,  3.0,  3.0,
+		 3.0,  3.0, -3.0,
+		
+		// Bottom face
+		-3.0, -3.0, -3.0,
+		 3.0, -3.0, -3.0,
+		 3.0, -3.0,  3.0,
+		-3.0, -3.0,  3.0,
+		
+		// Right face
+		 3.0, -3.0, -3.0,
+		 3.0,  3.0, -3.0,
+		 3.0,  3.0,  3.0,
+		 3.0, -3.0,  3.0,
+		
+		// Left face
+		-3.0, -3.0, -3.0,
+		-3.0, -3.0,  3.0,
+		-3.0,  3.0,  3.0,
+		-3.0,  3.0, -3.0,
+	  ];
+
 	context.bufferData(context.ARRAY_BUFFER, new Float32Array(positions), context.STATIC_DRAW);
+	context.bufferData(context.ARRAY_BUFFER, new Float32Array(positions_two), context.STATIC_DRAW);
 
 	// Texture buffer
 
@@ -389,7 +418,6 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 	context.depthFunc(context.LEQUAL);
 	
 	context.clear(context.COLOR_BUFFER_BIT | context.DEPTH_BUFFER_BIT);
-
 
 	// Perform movement calculations
 
@@ -561,4 +589,3 @@ function load_texture(context, url) {
   
 	return texture;
 }
-  
