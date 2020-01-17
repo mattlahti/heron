@@ -1,151 +1,178 @@
-let cube_rotation = 0.0;
-let fps = 0;
+const vertex_shader_source = `
+	attribute vec4 aVertexPosition;
+	attribute vec3 aVertexNormal;
+	attribute vec2 aTextureCoord;
+
+	uniform mat4 uNormalMatrix;
+	uniform mat4 uModelViewMatrix;
+	uniform mat4 uProjectionMatrix;
+
+	varying highp vec2 vTextureCoord;
+	varying highp vec3 vLighting;
+
+	void main(void) {
+		gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
+		vTextureCoord = aTextureCoord;
+
+		highp vec3 ambientLight = vec3(0.3, 0.3, 0.3);
+		highp vec3 directionalLightColor = vec3(1, 1, 1);
+		highp vec3 directionalVector = normalize(vec3(0.85, 0.8, 0.75));
+
+		highp vec4 transformedNormal = uNormalMatrix * vec4(aVertexNormal, 1.0);
+
+		highp float directional = max(dot(transformedNormal.xyz, directionalVector), 0.0);
+		vLighting = ambientLight + (directionalLightColor * directional);
+	}
+`;
+
+const fragment_shader_source = `
+	varying highp vec2 vTextureCoord;
+	varying highp vec3 vLighting;
+
+	uniform sampler2D uSampler;
+
+	void main(void) {
+		highp vec4 texelColor = texture2D(uSampler, vTextureCoord);
+
+		gl_FragColor = vec4(texelColor.rgb * vLighting, texelColor.a);
+	}
+`;
+
+let app_context = 
+{
+	aspect_ratio: 0,
+	field_of_view: 92,
+	near_plane: 0.1,
+	far_plane: 100.0,
+	world_position: make_v3(0, 0, 0),
+	camera_yaw: 0,
+	camera_pitch: Math.PI / 2,
+	commands: [],
+	command_count: 0,
+	should_quit: false
+};
+
+let time = 
+{
+	delta_seconds: 0,
+	elapsed_seconds: 0, 
+	app_start_ms: 0
+};
+
+let input = 
+{
+	left_motion: make_v3(0, 0, 0),
+	right_motion: make_v2(0, 0)
+};
+
 let page_width = 0;
 let page_height = 0;
-
 let is_dragging = false;
-let x_rotation = 0;
-let y_rotation = 0;
-let z_rotation = 0;
-let camera_position = {
-	x: 0,
-	y: 0,
-	z: -6
-}
-
-let starting_mouse_pos = {};
 let last_mouse_pos = {};
-let keys_being_held = [];
 let keys_held = {};
 
-main();
-
-function get_mouse_position(event) {
-	return {
-		x: event.clientX /*- canvas.element.offsetLeft*/,
-		y: event.clientY /*- canvas.element.offsetTop*/
-	};
+function get_mouse_position(event) 
+{
+	return make_v2(event.clientX, event.clientY);
 }
 
-
-window.onkeyup = e => {
+//@todo(Matt): Array implementation instead of JS object
+window.onkeyup = e => 
+{
 	delete keys_held[e.key];
 }
 
-window.onkeydown = e => {
+window.onkeydown = e => 
+{
 	if (!keys_held[e.key]) {
 		keys_held[e.key] = e.key;
 	}
 }
 
-window.onmousedown = e => {
+window.onmousedown = e => 
+{
 	is_dragging = true;
-	starting_mouse_pos = get_mouse_position(e);
-	last_mouse_pos = starting_mouse_pos;
+	last_mouse_pos = get_mouse_position(e);
 }
 
-window.onmousemove = e => {
-	if (is_dragging) {
+window.onmousemove = e => 
+{
+	if (is_dragging) 
+	{
 		let current_mouse_pos = get_mouse_position(e);
+		let rotation_dampener = 2.5;
 
-		//@note(Matt): While this may look wrong, the coordinate plane is actually flipped (x = up/down, y = left/right)
-		x_rotation += -(last_mouse_pos.y - current_mouse_pos.y);
-		y_rotation += -(last_mouse_pos.x - current_mouse_pos.x);
+		// (x = up/down, y = left/right)
+		input.right_motion.y += -(last_mouse_pos.y - current_mouse_pos.y) / rotation_dampener;
+		input.right_motion.x += -(last_mouse_pos.x - current_mouse_pos.x) / rotation_dampener;
 
 		last_mouse_pos = current_mouse_pos;
 	}
 }
 
-window.onmouseup = () => {
+window.onmouseup = () => 
+{
 	is_dragging = false;
 }
 
-window.onresize = e => {
+window.onresize = e => 
+{
+	set_page_dimensions();
+	set_canvas_dimensions();
+}
+
+function set_page_dimensions() 
+{
 	page_width = Math.max(document.documentElement["clientWidth"], document.body["scrollWidth"], document.documentElement["scrollWidth"], document.body["offsetWidth"], document.documentElement["offsetWidth"]);
 	page_height = Math.max(document.documentElement["clientHeight"], document.body["scrollHeight"], document.documentElement["scrollHeight"], document.body["offsetHeight"], document.documentElement["offsetHeight"]);
+}
+
+function set_canvas_dimensions()
+{
 	document.getElementById("gl-canvas").width = page_width;
 	document.getElementById("text-canvas").width = page_width;
 	document.getElementById("gl-canvas").height = page_height;
 	document.getElementById("text-canvas").height = page_height;
 }
 
-function main() {
-	let delta_time = 0;
-	
-	page_width = Math.max(document.documentElement["clientWidth"], document.body["scrollWidth"], document.documentElement["scrollWidth"], document.body["offsetWidth"], document.documentElement["offsetWidth"]);
-	page_height = Math.max(document.documentElement["clientHeight"], document.body["scrollHeight"], document.documentElement["scrollHeight"], document.body["offsetHeight"], document.documentElement["offsetHeight"]);
-	
+function create_canvas(id, context_type) 
+{
 	let canvas = document.createElement("canvas");
 	canvas.width = page_width;
 	canvas.height = page_height;
-	canvas.id = "gl-canvas";
+	canvas.id = id;
 	document.getElementById("canvas-wrapper").appendChild(canvas);
-	const context = canvas.getContext("webgl");
+	return canvas.getContext(context_type);
+}
 
-	const two_d_canvas = document.createElement("canvas");
-	two_d_canvas.width = page_width;
-	two_d_canvas.height = page_height;
-	two_d_canvas.id = "text-canvas";
-	document.getElementById("canvas-wrapper").appendChild(two_d_canvas);
-	const two_d_context = two_d_canvas.getContext("2d");
-	
-	if (!context) {
-		console.error("Couldn't get the WebGL canvas. Try using Firefox or Chrome.");
+function main() 
+{
+	set_page_dimensions();
+
+	const context = create_canvas("gl-canvas", "webgl");
+	const two_d_context = create_canvas("text-canvas", "2d");
+
+	if (!context) 
+	{
+		console.error("FATAL: Couldn't start the WebGL canvas.");
 		return;
 	}
-	
-	const vertex_shader_source = `
-		attribute vec4 aVertexPosition;
-		attribute vec3 aVertexNormal;
-		attribute vec2 aTextureCoord;
 
-		uniform mat4 uNormalMatrix;
-		uniform mat4 uModelViewMatrix;
-		uniform mat4 uProjectionMatrix;
-
-		varying highp vec2 vTextureCoord;
-		varying highp vec3 vLighting;
-
-		void main(void) {
-			gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
-			vTextureCoord = aTextureCoord;
-
-			// Apply lighting effect
-
-			highp vec3 ambientLight = vec3(0.3, 0.3, 0.3);
-			highp vec3 directionalLightColor = vec3(1, 1, 1);
-			highp vec3 directionalVector = normalize(vec3(0.85, 0.8, 0.75));
-
-			highp vec4 transformedNormal = uNormalMatrix * vec4(aVertexNormal, 1.0);
-
-			highp float directional = max(dot(transformedNormal.xyz, directionalVector), 0.0);
-			vLighting = ambientLight + (directionalLightColor * directional);
-		}
-	`;
-	
-	const fragment_shader_source = `
-		varying highp vec2 vTextureCoord;
-		varying highp vec3 vLighting;
-
-		uniform sampler2D uSampler;
-
-		void main(void) {
-			highp vec4 texelColor = texture2D(uSampler, vTextureCoord);
-
-			gl_FragColor = vec4(texelColor.rgb * vLighting, texelColor.a);
-		}
-	`;
+	app_context.aspect_ratio = context.canvas.clientWidth / context.canvas.clientHeight;
 
 	const shader_program = initialize_shaders(context, vertex_shader_source, fragment_shader_source);
 	
-	const program_info = {
+	const program_info = 
+	{
 		program: shader_program,
-		attribute_locations: {
+		attribute_locations: 
+		{
 			vertex_position: context.getAttribLocation(shader_program, "aVertexPosition"),
 			texture_coordinates: context.getAttribLocation(shader_program, "aTextureCoord"),
 			vertex_normal: context.getAttribLocation(shader_program, "aVertexNormal"),
 		},
-		uniform_locations: {
+		uniform_locations: 
+		{
 			projection_matrix: context.getUniformLocation(shader_program, "uProjectionMatrix"),
 			model_view_matrix: context.getUniformLocation(shader_program, "uModelViewMatrix"),
 			u_sampler: context.getUniformLocation(shader_program, "uSampler"),
@@ -156,23 +183,55 @@ function main() {
 	const buffers = initialize_buffers(context);
 	const texture = load_texture(context, "cubetexture.png");
 
-	let previous_now = 0;
+	function render() 
+	{
+		let start_ms = new Date().getTime();
+		time.elapsed_seconds = (start_ms - time.app_start_ms) / 1000;
 
-	function render(now) {
-		now /= 1000;
+		if (app_context.should_quit) 
+		{
+			cancelAnimationFrame(app_context.animation_frame);
+			app_context.animation_frame = null;
+			write_status(two_d_context, "Application stopped");
+			return;
+		}
 
-		delta_time = now - previous_now;
-		fps = Math.round(1000 / (delta_time * 1000));
-		previous_now = now;
-		draw_scene(context, two_d_context, program_info, buffers, texture, delta_time);
-	
-		requestAnimationFrame(render);
+		draw_scene(context, two_d_context, program_info, buffers, texture);
+		clear_input();
+
+		app_context.animation_frame = requestAnimationFrame(render);
+
+		let end_ms = new Date().getTime();
+		time.delta_seconds = end_ms - start_ms;
 	}
 	
-	render(0);
+	time.app_start_ms = new Date().getTime();
+	render();
 }
 
-function load_shader(context, type, source) {
+function clear_input() 
+{
+	input = {
+		left_motion: make_v3(0, 0, 0),
+		right_motion: make_v2(0, 0)
+	};
+}
+
+//@todo(Matt): Since these canvas attributes need to be set only once, move them outside of this call
+function write_status(the_context, status) 
+{
+	the_context.fillStyle = "rgba(0, 0, 0, 0)";
+	the_context.fillRect(0, 0, the_context.canvas.clientWidth, the_context.canvas.clientHeight);
+	the_context.stroke();
+	the_context.clearRect(0, 0, the_context.canvas.clientWidth, the_context.canvas.clientHeight);
+	the_context.fillStyle = "#00FF00";
+	the_context.font = "32px Roboto";
+	the_context.fillText(status, 10, 50);
+	the_context.stroke();
+}
+
+function load_shader(context, type, source) 
+{
 	const shader = context.createShader(type);
 	
 	context.shaderSource(shader, source);
@@ -187,7 +246,8 @@ function load_shader(context, type, source) {
 	return shader;
 }
 
-function initialize_shaders(context, vertex_shader_source, fragment_shader_source) {
+function initialize_shaders(context, vertex_shader_source, fragment_shader_source) 
+{
 	const vertex_shader = load_shader(context, context.VERTEX_SHADER, vertex_shader_source);
 	const fragment_shader = load_shader(context, context.FRAGMENT_SHADER, fragment_shader_source);
 
@@ -196,7 +256,8 @@ function initialize_shaders(context, vertex_shader_source, fragment_shader_sourc
 	context.attachShader(shader_program, fragment_shader);
 	context.linkProgram(shader_program);
 
-	if (!context.getProgramParameter(shader_program, context.LINK_STATUS)) {
+	if (!context.getProgramParameter(shader_program, context.LINK_STATUS)) 
+	{
 		console.error(`Unable to start the shader program: ${context.getProgramInfoLog(shader_program)}`);
 		return null;
 	}
@@ -204,90 +265,46 @@ function initialize_shaders(context, vertex_shader_source, fragment_shader_sourc
 	return shader_program;
 }
 
-function initialize_buffers(context) {
+function initialize_buffers(context) 
+{
 	// Position Buffer
 
 	const position_buffer = context.createBuffer();
 	context.bindBuffer(context.ARRAY_BUFFER, position_buffer);
 
 	const positions = [
-		// Front face
 		-1.0, -1.0,  1.0,
-		 1.0, -1.0,  1.0,
-		 1.0,  1.0,  1.0,
+		1.0, -1.0,  1.0,
+		1.0,  1.0,  1.0,
 		-1.0,  1.0,  1.0,
 		
-		// Back face
 		-1.0, -1.0, -1.0,
 		-1.0,  1.0, -1.0,
-		 1.0,  1.0, -1.0,
-		 1.0, -1.0, -1.0,
+		1.0,  1.0, -1.0,
+		1.0, -1.0, -1.0,
 		
-		// Top face
 		-1.0,  1.0, -1.0,
 		-1.0,  1.0,  1.0,
-		 1.0,  1.0,  1.0,
-		 1.0,  1.0, -1.0,
+		1.0,  1.0,  1.0,
+		1.0,  1.0, -1.0,
 		
-		// Bottom face
 		-1.0, -1.0, -1.0,
-		 1.0, -1.0, -1.0,
-		 1.0, -1.0,  1.0,
+		1.0, -1.0, -1.0,
+		1.0, -1.0,  1.0,
 		-1.0, -1.0,  1.0,
 		
-		// Right face
-		 1.0, -1.0, -1.0,
-		 1.0,  1.0, -1.0,
-		 1.0,  1.0,  1.0,
-		 1.0, -1.0,  1.0,
+		1.0, -1.0, -1.0,
+		1.0,  1.0, -1.0,
+		1.0,  1.0,  1.0,
+		1.0, -1.0,  1.0,
 		
-		// Left face
 		-1.0, -1.0, -1.0,
 		-1.0, -1.0,  1.0,
 		-1.0,  1.0,  1.0,
-		-1.0,  1.0, -1.0,
-	  ];
-
-	  const positions_two = [
-		// Front face
-		-3.0, -3.0,  3.0,
-		 3.0, -3.0,  3.0,
-		 3.0,  3.0,  3.0,
-		-3.0,  3.0,  3.0,
-		
-		// Back face
-		-3.0, -3.0, -3.0,
-		-3.0,  3.0, -3.0,
-		 3.0,  3.0, -3.0,
-		 3.0, -3.0, -3.0,
-		
-		// Top face
-		-3.0,  3.0, -3.0,
-		-3.0,  3.0,  3.0,
-		 3.0,  3.0,  3.0,
-		 3.0,  3.0, -3.0,
-		
-		// Bottom face
-		-3.0, -3.0, -3.0,
-		 3.0, -3.0, -3.0,
-		 3.0, -3.0,  3.0,
-		-3.0, -3.0,  3.0,
-		
-		// Right face
-		 3.0, -3.0, -3.0,
-		 3.0,  3.0, -3.0,
-		 3.0,  3.0,  3.0,
-		 3.0, -3.0,  3.0,
-		
-		// Left face
-		-3.0, -3.0, -3.0,
-		-3.0, -3.0,  3.0,
-		-3.0,  3.0,  3.0,
-		-3.0,  3.0, -3.0,
-	  ];
+		-1.0,  1.0, -1.0
+	];
 
 	context.bufferData(context.ARRAY_BUFFER, new Float32Array(positions), context.STATIC_DRAW);
-	context.bufferData(context.ARRAY_BUFFER, new Float32Array(positions_two), context.STATIC_DRAW);
 
 	// Texture buffer
 
@@ -295,36 +312,35 @@ function initialize_buffers(context) {
 	context.bindBuffer(context.ARRAY_BUFFER, texture_coordinate_buffer);
   
 	const texture_coordinates = [
-	  // Front
-	  0.0,  0.0,
-	  1.0,  0.0,
-	  1.0,  1.0,
-	  0.0,  1.0,
-	  // Back
-	  0.0,  0.0,
-	  1.0,  0.0,
-	  1.0,  1.0,
-	  0.0,  1.0,
-	  // Top
-	  0.0,  0.0,
-	  1.0,  0.0,
-	  1.0,  1.0,
-	  0.0,  1.0,
-	  // Bottom
-	  0.0,  0.0,
-	  1.0,  0.0,
-	  1.0,  1.0,
-	  0.0,  1.0,
-	  // Right
-	  0.0,  0.0,
-	  1.0,  0.0,
-	  1.0,  1.0,
-	  0.0,  1.0,
-	  // Left
-	  0.0,  0.0,
-	  1.0,  0.0,
-	  1.0,  1.0,
-	  0.0,  1.0,
+		0.0,  0.0,
+		1.0,  0.0,
+		1.0,  1.0,
+		0.0,  1.0,
+		
+		0.0,  0.0,
+		1.0,  0.0,
+		1.0,  1.0,
+		0.0,  1.0,
+		
+		0.0,  0.0,
+		1.0,  0.0,
+		1.0,  1.0,
+		0.0,  1.0,
+		
+		0.0,  0.0,
+		1.0,  0.0,
+		1.0,  1.0,
+		0.0,  1.0,
+		
+		0.0,  0.0,
+		1.0,  0.0,
+		1.0,  1.0,
+		0.0,  1.0,
+		
+		0.0,  0.0,
+		1.0,  0.0,
+		1.0,  1.0,
+		0.0,  1.0
 	];
   
 	context.bufferData(context.ARRAY_BUFFER, new Float32Array(texture_coordinates), context.STATIC_DRAW);
@@ -335,12 +351,12 @@ function initialize_buffers(context) {
 	context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, index_buffer);
 
 	const indices = [
-		0,  1,  2,      0,  2,  3,    // front
-		4,  5,  6,      4,  6,  7,    // back
-		8,  9,  10,     8,  10, 11,   // top
-		12, 13, 14,     12, 14, 15,   // bottom
-		16, 17, 18,     16, 18, 19,   // right
-		20, 21, 22,     20, 22, 23,   // left
+		0,  1,  2,      0,  2,  3,
+		4,  5,  6,      4,  6,  7, 
+		8,  9,  10,     8,  10, 11,
+		12, 13, 14,     12, 14, 15,
+		16, 17, 18,     16, 18, 19,
+		20, 21, 22,     20, 22, 23,
 	];
 
 	context.bufferData(context.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), context.STATIC_DRAW);
@@ -351,41 +367,35 @@ function initialize_buffers(context) {
 	context.bindBuffer(context.ARRAY_BUFFER, normal_buffer);
   
 	const vertex_normals = [
-	  // Front
-	   0.0,  0.0,  1.0,
-	   0.0,  0.0,  1.0,
-	   0.0,  0.0,  1.0,
-	   0.0,  0.0,  1.0,
-  
-	  // Back
-	   0.0,  0.0, -1.0,
-	   0.0,  0.0, -1.0,
-	   0.0,  0.0, -1.0,
-	   0.0,  0.0, -1.0,
-  
-	  // Top
-	   0.0,  1.0,  0.0,
-	   0.0,  1.0,  0.0,
-	   0.0,  1.0,  0.0,
-	   0.0,  1.0,  0.0,
-  
-	  // Bottom
-	   0.0, -1.0,  0.0,
-	   0.0, -1.0,  0.0,
-	   0.0, -1.0,  0.0,
-	   0.0, -1.0,  0.0,
-  
-	  // Right
-	   1.0,  0.0,  0.0,
-	   1.0,  0.0,  0.0,
-	   1.0,  0.0,  0.0,
-	   1.0,  0.0,  0.0,
-  
-	  // Left
-	  -1.0,  0.0,  0.0,
-	  -1.0,  0.0,  0.0,
-	  -1.0,  0.0,  0.0,
-	  -1.0,  0.0,  0.0
+		0.0,  0.0,  1.0,
+		0.0,  0.0,  1.0,
+		0.0,  0.0,  1.0,
+		0.0,  0.0,  1.0,
+	
+		0.0,  0.0, -1.0,
+		0.0,  0.0, -1.0,
+		0.0,  0.0, -1.0,
+		0.0,  0.0, -1.0,
+	
+		0.0,  1.0,  0.0,
+		0.0,  1.0,  0.0,
+		0.0,  1.0,  0.0,
+		0.0,  1.0,  0.0,
+	
+		0.0, -1.0,  0.0,
+		0.0, -1.0,  0.0,
+		0.0, -1.0,  0.0,
+		0.0, -1.0,  0.0,
+	
+		1.0,  0.0,  0.0,
+		1.0,  0.0,  0.0,
+		1.0,  0.0,  0.0,
+		1.0,  0.0,  0.0,
+	
+		-1.0,  0.0,  0.0,
+		-1.0,  0.0,  0.0,
+		-1.0,  0.0,  0.0,
+		-1.0,  0.0,  0.0
 	];
   
 	context.bufferData(context.ARRAY_BUFFER, new Float32Array(vertex_normals), context.STATIC_DRAW);
@@ -398,84 +408,75 @@ function initialize_buffers(context) {
 	};
 }
 
-function draw_scene(context, two_d_context, program_info, buffers, texture, delta_time) {
-	if (!context || !program_info) {
-		console.error(`Oh no! There was a fatal error initializing the canvas.`);
+function draw_scene(context, two_d_context, program_info, buffers, texture, delta_time) 
+{
+	if (!context || !program_info) 
+	{
+		console.error(`Fatal error starting the canvas.`);
 	}
 
-	two_d_context.fillStyle = "rgba(0, 0, 0, 0)";
-	two_d_context.fillRect(0, 0, two_d_context.canvas.clientWidth, two_d_context.canvas.clientHeight);
-	two_d_context.stroke();
-	two_d_context.clearRect(0, 0, two_d_context.canvas.clientWidth, two_d_context.canvas.clientHeight);
-	two_d_context.fillStyle = "#FFFF00";
-	two_d_context.font = "36px Roboto";
-	two_d_context.fillText(fps, 10, 50);
-	two_d_context.stroke();
+	write_status(two_d_context, app_context.world_position.to_string("Position"));
 	
 	context.clearColor(0.0, 0.0, 0.0, 1.0);
 	context.clearDepth(1.0);
 	context.enable(context.DEPTH_TEST);
 	context.depthFunc(context.LEQUAL);
-	
 	context.clear(context.COLOR_BUFFER_BIT | context.DEPTH_BUFFER_BIT);
 
-	// Perform movement calculations
-
-	let move_speed = 0.25;
-	let keys_being_held_array = Object.values(keys_held);
+	let move_speed = 1;
+	let keys_held_array = Object.values(keys_held);
 	
-	for (let i = 0; i < keys_being_held_array.length; i++) {
-		switch (keys_being_held_array[i]) {
-			case 'w': {
-				camera_position.z += move_speed;
-				break;
-			}
-			case 'a': {
-				camera_position.x += move_speed;
-				break;
-			}
-			case 's': {
-				camera_position.z -= move_speed;
-				break;
-			}
-			case 'd': {
-				camera_position.x -= move_speed;
-				break;
-			}
-			case 'e': {
-				camera_position.y += move_speed;
-				break;
-			}
-			case 'q': {
-				camera_position.y -= move_speed;
-				break;
-			}
+	for (let i = 0; i < keys_held_array.length; i++) 
+	{
+		let key_held = keys_held_array[i];
+
+		if (key_held === "Escape") 
+		{
+			app_context.should_quit = !app_context.should_quit;
+			console.warn("Stopping application....");
+			break;
+		}
+
+		switch (key_held) 
+		{
+			case 'w': { input.left_motion.z += move_speed; break; }
+			case 's': { input.left_motion.z -= move_speed; break; }
+			case 'a': { input.left_motion.x += move_speed; break; }
+			case 'd': { input.left_motion.x -= move_speed; break; }
+			case 'e': { input.left_motion.y -= move_speed; break; }
+			case 'q': { input.left_motion.y += move_speed; break; }
 		}
 	}
-	
-	const field_of_view = degrees_to_radians(92);
-	const aspect = context.canvas.clientWidth / context.canvas.clientHeight;
-	const z_near = 0.1;
-	const z_far = 100.0;
-	
-	const projection_matrix = glMatrix.mat4.create();
-	glMatrix.mat4.perspective(projection_matrix, field_of_view, aspect, z_near, z_far);
-	glMatrix.mat4.rotateX(projection_matrix, projection_matrix, degrees_to_radians(x_rotation));
-	glMatrix.mat4.rotateY(projection_matrix, projection_matrix, degrees_to_radians(y_rotation));
 
-	const model_view_matrix = glMatrix.mat4.create();
-	glMatrix.mat4.translate(model_view_matrix, model_view_matrix, [ camera_position.x, camera_position.y, camera_position.z ]);
-	// glMatrix.mat4.translate(model_view_matrix, model_view_matrix, [ -0.0, 0.0, -4.0 ]);
-	// glMatrix.mat4.rotateX(model_view_matrix, model_view_matrix, degrees_to_radians(x_rotation));
-	// glMatrix.mat4.rotateY(model_view_matrix, model_view_matrix, degrees_to_radians(y_rotation));
-	// glMatrix.mat4.rotateZ(model_view_matrix, model_view_matrix, degrees_to_radians(z_rotation));
+	//@todo(Matt): Remove this barely-working, cobbled together solution.
+	// In a nutshell, because I can't use a union, whenever i update x y or z, i should also update e (x, y, and z as an array)
+	input.left_motion.update_e_from_properties();
 
+	let projection_matrix = make_perspective(
+		app_context.aspect_ratio,
+		app_context.field_of_view,
+		app_context.near_plane,
+		app_context.far_plane
+	);
+
+	app_context.camera_yaw += input.right_motion.x;
+	app_context.camera_pitch += input.right_motion.y;
+
+	let rotation_matrix = matrix_multiply(make_rotation_z(app_context.camera_yaw), make_rotation_y(app_context.camera_pitch));
+	rotation_matrix = rotation_matrix.to_m3x3();
+
+	let rotation_x_movement = matrix_multiply(rotation_matrix, input.left_motion);
+	app_context.world_position = vector_add(app_context.world_position, rotation_x_movement);
+
+	let model_view_matrix = make_camera_transform(app_context.world_position, rotation_matrix);
+	console.log(model_view_matrix);
+
+	//@todo(Matt): Remove last uses of glMatrix, implement invert() on matrix
 	const normal_matrix = glMatrix.mat4.create();
 	glMatrix.mat4.invert(normal_matrix, model_view_matrix);
 	glMatrix.mat4.transpose(normal_matrix, normal_matrix);
 
-	context.uniformMatrix4fv(program_info.uniform_locations.normal_matrix, false, normal_matrix);
-
+	// Position
 	{
 		const component_count = 3;
 		const type = context.FLOAT;
@@ -496,6 +497,7 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 		context.enableVertexAttribArray(program_info.attribute_locations.vertex_position);
 	}
 	
+	// Texture
 	{
 		const component_count = 2; // every coordinate composed of 2 values
 		const type = context.FLOAT; // the data in the buffer is 32 bit float
@@ -507,6 +509,7 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 		context.enableVertexAttribArray(program_info.attribute_locations.texture_coordinates);
 	}
 
+	// Normal
 	{
 		const component_count = 3;
 		const type = context.FLOAT;
@@ -522,25 +525,28 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 	
 	context.useProgram(program_info.program);
 	
+	//@note(Matt): matrix.e simply puts the matrix into a 1d array as webgl expects
 	context.uniformMatrix4fv(
 		program_info.uniform_locations.projection_matrix,
 		false,
-		projection_matrix
+		projection_matrix.e
 	);
 	
 	context.uniformMatrix4fv(
 		program_info.uniform_locations.model_view_matrix,
 		false,
-		model_view_matrix
+		model_view_matrix.e
 	);
 
-	// Tell WebGL we want to affect texture unit 0
+	context.uniformMatrix4fv(
+		program_info.uniform_locations.normal_matrix, 
+		false,
+		normal_matrix
+	);
+
 	context.activeTexture(context.TEXTURE0);
-	// Bind the texture to texture unit 0
 	context.bindTexture(context.TEXTURE_2D, texture);
-	// Tell the shader we bound the texture to texture unit 0
 	context.uniform1i(program_info.uniform_locations.u_sampler, 0);
-	
 	
 	{
 		const vertex_count = 36;
@@ -548,13 +554,10 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 		const offset = 0;
 		context.drawElements(context.TRIANGLES, vertex_count, type, offset);
 	}
-
-	let rotation_scalar = 1;
-
-	cube_rotation += delta_time * rotation_scalar;
 }
 
-function load_texture(context, url) {
+function load_texture(context, url) 
+{
 	const texture = context.createTexture();
 	context.bindTexture(context.TEXTURE_2D, texture);
   
@@ -566,19 +569,21 @@ function load_texture(context, url) {
 	const border = 0;
 	const srcFormat = context.RGBA;
 	const srcType = context.UNSIGNED_BYTE;
-	const pixel = new Uint8Array([221, 72, 0, 255]);  // opaque blue
+	const pixel = new Uint8Array([221, 72, 0, 255]); 
 	context.texImage2D(context.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
   
 	const image = new Image();
-	image.onload = function() {
+	image.onload = function() 
+	{
 		context.bindTexture(context.TEXTURE_2D, texture);
 		context.texImage2D(context.TEXTURE_2D, level, internalFormat, srcFormat, srcType, image);
 	
-		if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+		if (is_power_of_2(image.width) && is_power_of_2(image.height)) 
+		{
 			context.generateMipmap(context.TEXTURE_2D);
 		} 
-		else {
-			// Not a power of 2, so turn off mips and set wrapping to clamp to edge
+		else 
+		{
 			context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_S, context.CLAMP_TO_EDGE);
 			context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_T, context.CLAMP_TO_EDGE);
 			context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MIN_FILTER, context.LINEAR);
@@ -589,3 +594,5 @@ function load_texture(context, url) {
   
 	return texture;
 }
+
+main();
