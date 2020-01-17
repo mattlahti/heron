@@ -469,7 +469,6 @@ function draw_scene(context, two_d_context, program_info, buffers, texture, delt
 	app_context.world_position = vector_add(app_context.world_position, rotation_x_movement);
 
 	let model_view_matrix = make_camera_transform(app_context.world_position, rotation_matrix);
-	console.log(model_view_matrix);
 
 	//@todo(Matt): Remove last uses of glMatrix, implement invert() on matrix
 	const normal_matrix = glMatrix.mat4.create();
